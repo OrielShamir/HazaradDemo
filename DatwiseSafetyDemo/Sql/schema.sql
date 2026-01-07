@@ -760,37 +760,41 @@ BEGIN
     DECLARE @now DATETIME = GETUTCDATE();
     DECLARE @role NVARCHAR(50) = LTRIM(RTRIM(ISNULL(@CurrentUserRole, N'')));
 
-    ;WITH scoped AS
-    (
-        SELECT *
-        FROM dbo.Hazards h
-        WHERE
-            (@role = 'SafetyOfficer'
-             OR (@role = 'FieldWorker' AND (h.ReportedByUserId = @CurrentUserId OR h.AssignedToUserId = @CurrentUserId))
-             OR (@role = 'SiteManager' AND (
-                    h.AssignedToUserId = @CurrentUserId
-                    OR h.ReportedByUserId = @CurrentUserId
-                    OR (h.AssignedToUserId IS NULL AND h.Status = 'Open')
-                )))
-    )
+    IF OBJECT_ID('tempdb..#scoped') IS NOT NULL DROP TABLE #scoped;
+
+    SELECT *
+    INTO #scoped
+    FROM dbo.Hazards h
+    WHERE
+        (@role = 'SafetyOfficer'
+         OR (@role = 'FieldWorker' AND (h.ReportedByUserId = @CurrentUserId OR h.AssignedToUserId = @CurrentUserId))
+         OR (@role = 'SiteManager' AND (
+                h.AssignedToUserId = @CurrentUserId
+                OR h.ReportedByUserId = @CurrentUserId
+                OR (h.AssignedToUserId IS NULL AND h.Status = 'Open')
+            )))
+    ;
+
+    -- Result set 1: totals
     SELECT
         COUNT(1) AS Total,
         SUM(CASE WHEN Status = 'Open' THEN 1 ELSE 0 END) AS OpenCount,
         SUM(CASE WHEN Status = 'InProgress' THEN 1 ELSE 0 END) AS InProgressCount,
         SUM(CASE WHEN Status = 'Resolved' THEN 1 ELSE 0 END) AS ResolvedCount,
         SUM(CASE WHEN DueDate IS NOT NULL AND DueDate < @now AND Status <> 'Resolved' THEN 1 ELSE 0 END) AS OverdueCount
-    FROM scoped;
+    FROM #scoped;
 
     -- Result set 2: by severity
     SELECT Severity AS [Key], COUNT(1) AS [Count]
-    FROM scoped
+    FROM #scoped
     GROUP BY Severity
     ORDER BY COUNT(1) DESC;
 
     -- Result set 3: by type
     SELECT [Type] AS [Key], COUNT(1) AS [Count]
-    FROM scoped
+    FROM #scoped
     GROUP BY [Type]
     ORDER BY COUNT(1) DESC;
 END
+
 GO
